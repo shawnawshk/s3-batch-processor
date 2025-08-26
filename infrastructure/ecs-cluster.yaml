@@ -1,0 +1,369 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ECS Cluster for S3 Batch Processing PoC'
+
+Conditions:
+  UseEC2: !Equals [!Ref LaunchType, 'EC2']
+  UseFargate: !Equals [!Ref LaunchType, 'FARGATE']
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 's3-batch-processor'
+  Environment:
+    Type: String
+    Default: 'poc'
+  LaunchType:
+    Type: String
+    Default: 'FARGATE'
+    AllowedValues:
+      - 'FARGATE'
+      - 'EC2'
+    Description: 'ECS Launch Type (FARGATE or EC2)'
+  InstanceType:
+    Type: String
+    Default: 't3.medium'
+    Description: 'EC2 Instance Type (only used when LaunchType is EC2)'
+  MinCapacity:
+    Type: Number
+    Default: 0
+    Description: 'Minimum number of EC2 instances (only used when LaunchType is EC2)'
+  MaxCapacity:
+    Type: Number
+    Default: 10
+    Description: 'Maximum number of EC2 instances (only used when LaunchType is EC2)'
+
+Resources:
+  # EC2 Launch Template (only for EC2 launch type)
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: UseEC2
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-${Environment}-lt'
+      LaunchTemplateData:
+        ImageId: '{{resolve:ssm:/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id}}'
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref EC2SecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo ECS_CLUSTER=${ProjectName}-${Environment} >> /etc/ecs/ecs.config
+            echo ECS_ENABLE_CONTAINER_METADATA=true >> /etc/ecs/ecs.config
+
+  # Auto Scaling Group (only for EC2 launch type)
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Condition: UseEC2
+    Properties:
+      AutoScalingGroupName: !Sub '${ProjectName}-${Environment}-asg'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: !Ref MinCapacity
+      MaxSize: !Ref MaxCapacity
+      DesiredCapacity: !Ref MinCapacity
+      VPCZoneIdentifier:
+        - !Ref DefaultSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-instance'
+          PropagateAtLaunch: true
+
+  # EC2 Capacity Provider (only for EC2 launch type)
+  EC2CapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Condition: UseEC2
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-cp'
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref AutoScalingGroup
+        ManagedScaling:
+          Status: ENABLED
+          TargetCapacity: 100
+        ManagedTerminationProtection: DISABLED
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${ProjectName}-${Environment}'
+      CapacityProviders: !If
+        - UseFargate
+        - - FARGATE
+          - FARGATE_SPOT
+        - - !Ref EC2CapacityProvider
+      DefaultCapacityProviderStrategy: !If
+        - UseFargate
+        - - CapacityProvider: FARGATE
+            Weight: 1
+          - CapacityProvider: FARGATE_SPOT
+            Weight: 4
+        - - CapacityProvider: !Ref EC2CapacityProvider
+            Weight: 1
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  # Task Definition
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-processor'
+      NetworkMode: !If [UseFargate, 'awsvpc', 'bridge']
+      RequiresCompatibilities: !If
+        - UseFargate
+        - - FARGATE
+        - - EC2
+      Cpu: !If [UseFargate, 1024, !Ref 'AWS::NoValue']
+      Memory: !If [UseFargate, 2048, !Ref 'AWS::NoValue']
+      ExecutionRoleArn: !Ref TaskExecutionRole
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: processor
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.ap-east-1.amazonaws.com/${ProjectName}:latest'
+          Essential: true
+          Memory: !If [UseEC2, 1024, !Ref 'AWS::NoValue']
+          MemoryReservation: !If [UseEC2, 512, !Ref 'AWS::NoValue']
+          PortMappings: !If
+            - UseEC2
+            - []
+            - !Ref 'AWS::NoValue'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: ap-east-1
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: AWS_DEFAULT_REGION
+              Value: ap-east-1
+            - Name: PROCESSING_TIMEOUT
+              Value: '300'
+
+
+
+  # Default VPC and Subnet (only for EC2 launch type)
+  DefaultVPC:
+    Type: AWS::EC2::VPC
+    Condition: UseEC2
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-vpc'
+
+  DefaultSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: UseEC2
+    Properties:
+      VpcId: !Ref DefaultVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-subnet'
+
+  DefaultInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: UseEC2
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-igw'
+
+  DefaultVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: UseEC2
+    Properties:
+      VpcId: !Ref DefaultVPC
+      InternetGatewayId: !Ref DefaultInternetGateway
+
+  DefaultRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: UseEC2
+    Properties:
+      VpcId: !Ref DefaultVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-rt'
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: UseEC2
+    DependsOn: DefaultVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref DefaultRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DefaultInternetGateway
+
+  DefaultSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: UseEC2
+    Properties:
+      SubnetId: !Ref DefaultSubnet
+      RouteTableId: !Ref DefaultRouteTable
+
+  # Security Group for EC2 instances (only for EC2 launch type)
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UseEC2
+    Properties:
+      GroupDescription: Security group for ECS EC2 instances
+      VpcId: !Ref DefaultVPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # IAM Role for EC2 instances (only for EC2 launch type)
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Condition: UseEC2
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+      Policies:
+        - PolicyName: ECSInstancePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:CreateCluster
+                  - ecs:DeregisterContainerInstance
+                  - ecs:DiscoverPollEndpoint
+                  - ecs:Poll
+                  - ecs:RegisterContainerInstance
+                  - ecs:StartTelemetrySession
+                  - ecs:Submit*
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: UseEC2
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # CloudWatch Log Group
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ProjectName}'
+      RetentionInDays: 7
+
+  # Task Execution Role
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+
+  # Task Role (for application permissions)
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${ProjectName}-*/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${ProjectName}-*'
+        - PolicyName: StepFunctionsActivityAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:GetActivityTask
+                  - states:SendTaskSuccess
+                  - states:SendTaskFailure
+                  - states:SendTaskHeartbeat
+                Resource: 
+                  - !Sub 'arn:aws:states:ap-east-1:${AWS::AccountId}:activity:${ProjectName}-processing-activity'
+
+Outputs:
+  ClusterArn:
+    Description: ECS Cluster ARN
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Sub '${ProjectName}-cluster-arn'
+  
+  TaskDefinitionArn:
+    Description: Task Definition ARN
+    Value: !Ref TaskDefinition
+    Export:
+      Name: !Sub '${ProjectName}-task-definition-arn'
+  
+  TaskRoleArn:
+    Description: Task Role ARN
+    Value: !GetAtt TaskRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-task-role-arn'
+
+  LaunchType:
+    Description: ECS Launch Type
+    Value: !Ref LaunchType
+    Export:
+      Name: !Sub '${ProjectName}-launch-type'
+
+  SubnetId:
+    Description: Subnet ID for ECS tasks
+    Value: !If [UseEC2, !Ref DefaultSubnet, !Ref 'AWS::NoValue']
+    Export:
+      Name: !Sub '${ProjectName}-subnet-id'
+
+  SecurityGroupId:
+    Description: Security Group ID for ECS tasks
+    Value: !If [UseEC2, !Ref EC2SecurityGroup, !Ref 'AWS::NoValue']
+    Export:
+      Name: !Sub '${ProjectName}-security-group-id'

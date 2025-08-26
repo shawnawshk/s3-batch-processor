@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Step Functions State Machine for S3 Batch Processing'
+
+Conditions:
+  UseFargate: !Equals [!Ref LaunchType, 'FARGATE']
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 's3-batch-processor'
+  Environment:
+    Type: String
+    Default: 'poc'
+  SourceBucket:
+    Type: String
+    Description: 'S3 bucket containing objects to process'
+  ClusterArn:
+    Type: String
+    Description: 'ECS Cluster ARN'
+  TaskDefinitionArn:
+    Type: String
+    Description: 'ECS Task Definition ARN'
+  SubnetId:
+    Type: String
+    Description: 'Subnet ID for ECS tasks'
+  SecurityGroupId:
+    Type: String
+    Description: 'Security Group ID for ECS tasks'
+  WorkerCount:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 100
+    Description: 'Number of worker tasks to launch (1-100)'
+  LaunchType:
+    Type: String
+    Default: 'FARGATE'
+    AllowedValues:
+      - 'FARGATE'
+      - 'EC2'
+    Description: 'ECS Launch Type (FARGATE or EC2)'
+
+Resources:
+  # Step Functions Activity
+  ProcessingActivity:
+    Type: AWS::StepFunctions::Activity
+    Properties:
+      Name: !Sub '${ProjectName}-processing-activity'
+
+  # Step Functions State Machine
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}'
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      Definition:
+        Comment: "Scalable S3 Batch Processing with Dynamic Worker Count"
+        StartAt: "PrepareWorkerList"
+        States:
+          PrepareWorkerList:
+            Type: "Pass"
+            Parameters:
+              WorkerCount.$: "$.WorkerCount"
+              WorkerIndices.$: "States.ArrayRange(1, $.WorkerCount, 1)"
+            Next: "StartWorkers"
+          StartWorkers:
+            Type: "Map"
+            ItemsPath: "$.WorkerIndices"
+            MaxConcurrency: 0
+            Iterator:
+              StartAt: "StartSingleWorker"
+              States:
+                StartSingleWorker:
+                  Type: "Task"
+                  Resource: "arn:aws:states:::ecs:runTask"
+                  Parameters: !If
+                    - UseFargate
+                    - LaunchType: !Ref LaunchType
+                      Cluster: !Ref ClusterArn
+                      TaskDefinition: !Ref TaskDefinitionArn
+                      NetworkConfiguration:
+                        AwsvpcConfiguration:
+                          Subnets: 
+                            - !Ref SubnetId
+                          SecurityGroups: 
+                            - !Ref SecurityGroupId
+                          AssignPublicIp: "ENABLED"
+                      Overrides:
+                        ContainerOverrides:
+                          - Name: "processor"
+                            Environment:
+                              - Name: "ACTIVITY_ARN"
+                                Value: !Ref ProcessingActivity
+                              - Name: "S3_BUCKET"
+                                Value: !Ref SourceBucket
+                              - Name: "WORKER_ID"
+                                Value.$: "States.Format('worker-{}', $)"
+                    - LaunchType: !Ref LaunchType
+                      Cluster: !Ref ClusterArn
+                      TaskDefinition: !Ref TaskDefinitionArn
+                      Overrides:
+                        ContainerOverrides:
+                          - Name: "processor"
+                            Environment:
+                              - Name: "ACTIVITY_ARN"
+                                Value: !Ref ProcessingActivity
+                              - Name: "S3_BUCKET"
+                                Value: !Ref SourceBucket
+                              - Name: "WORKER_ID"
+                                Value.$: "States.Format('worker-{}', $)"
+                  End: true
+            ResultPath: "$.WorkerTasks"
+            Next: "ExtractTaskArns"
+          ExtractTaskArns:
+            Type: "Pass"
+            Parameters:
+              TaskArns.$: "$.WorkerTasks[*].Tasks[0].TaskArn"
+              WorkerCount.$: "$.WorkerCount"
+            Next: "CheckAllWorkersStatus"
+          CheckAllWorkersStatus:
+            Type: "Task"
+            Resource: "arn:aws:states:::aws-sdk:ecs:describeTasks"
+            Parameters:
+              Cluster: !Ref ClusterArn
+              Tasks.$: "$.TaskArns"
+            ResultPath: "$.TaskStatus"
+            Next: "AreAllWorkersRunning"
+          AreAllWorkersRunning:
+            Type: "Pass"
+            Parameters:
+              TaskCount.$: "States.ArrayLength($.TaskStatus.Tasks)"
+              ExpectedCount.$: "$.WorkerCount"
+              HasFailures.$: "States.ArrayLength($.TaskStatus.Failures)"
+              Tasks.$: "$.TaskStatus.Tasks"
+            Next: "CheckTaskCount"
+          CheckTaskCount:
+            Type: "Choice"
+            Choices:
+              - And:
+                  - Variable: "$.HasFailures"
+                    NumericEquals: 0
+                  - Variable: "$.TaskCount"
+                    NumericEqualsPath: "$.ExpectedCount"
+                Next: "WaitForApplicationStartup"
+            Default: "WaitAndCheckAgain"
+          WaitAndCheckAgain:
+            Type: "Wait"
+            Seconds: 10
+            Next: "CheckAllWorkersStatus"
+          WaitForApplicationStartup:
+            Type: "Wait"
+            Seconds: 30
+            Comment: "Allow time for containers to start and begin polling Activity"
+            Next: "ProcessObjectsWithDistributedMap"
+          ProcessObjectsWithDistributedMap:
+            Type: "Map"
+            ItemReader:
+              Resource: "arn:aws:states:::s3:listObjectsV2"
+              Parameters:
+                Bucket: !Ref SourceBucket
+            ItemProcessor:
+              ProcessorConfig:
+                Mode: "DISTRIBUTED"
+                ExecutionType: "STANDARD"
+              StartAt: "SendToActivity"
+              States:
+                SendToActivity:
+                  Type: "Task"
+                  Resource: !Ref ProcessingActivity
+                  Parameters:
+                    bucket: !Ref SourceBucket
+                    object_key.$: "$.Key"
+                    size.$: "$.Size"
+                  TimeoutSeconds: 30
+                  Retry:
+                    - ErrorEquals: ["States.TaskFailed"]
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  End: true
+            MaxConcurrency: 50
+            ToleratedFailurePercentage: 50
+            ToleratedFailureCount: 20
+            ResultPath: "$.ProcessingResults"
+            Next: "ListRunningTasks"
+          ListRunningTasks:
+            Type: "Task"
+            Resource: "arn:aws:states:::aws-sdk:ecs:listTasks"
+            Parameters:
+              Cluster: !Ref ClusterArn
+            ResultPath: "$.RunningTasks"
+            Next: "StopAllRunningTasks"
+          StopAllRunningTasks:
+            Type: "Map"
+            ItemsPath: "$.RunningTasks.TaskArns"
+            MaxConcurrency: 0
+            ResultPath: "$.StopResults"
+            Iterator:
+              StartAt: "StopSingleTask"
+              States:
+                StopSingleTask:
+                  Type: "Task"
+                  Resource: "arn:aws:states:::aws-sdk:ecs:stopTask"
+                  Parameters:
+                    Cluster: !Ref ClusterArn
+                    Task.$: "$"
+                    Reason: "Processing completed - stopping worker"
+                  Catch:
+                    - ErrorEquals: ["States.ALL"]
+                      Next: "TaskStopCompleted"
+                  Next: "TaskStopCompleted"
+                TaskStopCompleted:
+                  Type: "Pass"
+                  Result: "Task stop completed"
+                  End: true
+            Next: "ProcessingComplete"
+          ProcessingComplete:
+            Type: "Pass"
+            Result: "Processing completed successfully"
+            End: true
+
+  # Step Functions Execution Role
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # ECS permissions
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: 
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
+              # S3 permissions
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${SourceBucket}'
+                  - !Sub 'arn:aws:s3:::${SourceBucket}/*'
+              # EventBridge permissions for monitoring
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                  - events:PutTargets
+                  - events:PutRule
+                  - events:DescribeRule
+                Resource: '*'
+              # Distributed Map permissions
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:DescribeExecution
+                Resource: 
+                  - !Sub 'arn:aws:states:ap-east-1:${AWS::AccountId}:stateMachine:${ProjectName}-${Environment}'
+                  - !Sub 'arn:aws:states:ap-east-1:${AWS::AccountId}:execution:${ProjectName}-${Environment}:*'
+              # Activity permissions
+              - Effect: Allow
+                Action:
+                  - states:GetActivityTask
+                  - states:SendTaskSuccess
+                  - states:SendTaskFailure
+                  - states:SendTaskHeartbeat
+                Resource: 
+                  - !Ref ProcessingActivity
+
+Outputs:
+  StateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value: !Ref StateMachine
+    Export:
+      Name: !Sub '${ProjectName}-state-machine-arn'
+  
+  ActivityArn:
+    Description: Step Functions Activity ARN
+    Value: !Ref ProcessingActivity
+    Export:
+      Name: !Sub '${ProjectName}-activity-arn'
+  
+  StepFunctionsRoleArn:
+    Description: Step Functions Role ARN
+    Value: !GetAtt StepFunctionsRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-stepfunctions-role-arn'

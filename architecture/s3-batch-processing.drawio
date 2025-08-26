@@ -1,0 +1,187 @@
+<mxfile host="65bd71144e">
+    <diagram name="S3-Batch-Processing-Simplified" id="s3-batch-processing-simplified">
+        <mxGraphModel dx="614" dy="605" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="user" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.user;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="180" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="stepfunctions-workflow" value="AWS Step Functions workflow" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=1;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_step_functions_workflow;strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#CD2264;dashed=0;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="50" width="300" height="450" as="geometry"/>
+                </mxCell>
+                <mxCell id="start-state" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#808080;strokeColor=#666666;fontColor=white;" parent="stepfunctions-workflow" vertex="1">
+                    <mxGeometry x="145" y="40" width="30" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="provision-ecs" value="Provision ECS Infrastructure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#CD2264;fontSize=11;align=left;spacingLeft=40;" parent="stepfunctions-workflow" vertex="1">
+                    <mxGeometry x="80" y="100" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="provision-ecs-icon" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#CD2264;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.step_functions;" parent="stepfunctions-workflow" vertex="1">
+                    <mxGeometry x="85" y="105" width="30" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="end-state" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#808080;strokeColor=#666666;fontColor=white;" parent="stepfunctions-workflow" vertex="1">
+                    <mxGeometry x="145" y="404" width="30" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="4" value="" style="group" parent="stepfunctions-workflow" connectable="0" vertex="1">
+                    <mxGeometry x="80" y="340" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="teardown" value="Tear Down ECS Infrastructure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#CD2264;fontSize=11;align=left;spacingLeft=40;" parent="4" vertex="1">
+                    <mxGeometry width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="teardown-icon" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#CD2264;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.step_functions;" parent="4" vertex="1">
+                    <mxGeometry x="5" y="5" width="30" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="sf-flow-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#545B64;" parent="stepfunctions-workflow" source="process-jobs" target="teardown" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sf-flow-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#545B64;" parent="stepfunctions-workflow" source="teardown" target="end-state" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sf-flow-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#545B64;" parent="stepfunctions-workflow" source="provision-ecs" target="process-jobs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="5" value="" style="group" parent="stepfunctions-workflow" connectable="0" vertex="1">
+                    <mxGeometry x="80" y="207" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="process-jobs" value="Process S3 Objects&#10;(Distributed Map)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#CD2264;fontSize=11;align=left;spacingLeft=40;" parent="5" vertex="1">
+                    <mxGeometry width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="process-jobs-icon" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#CD2264;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.step_functions;" parent="5" vertex="1">
+                    <mxGeometry x="5" y="10" width="30" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="sf-flow-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#545B64;" parent="stepfunctions-workflow" source="start-state" target="provision-ecs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs-infrastructure" value="ECS Cluster" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=1;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_cloud_alt;strokeColor=#ED7100;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#ED7100;dashed=0;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="90" width="400" height="340" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs-cluster" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ecs;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="170" y="20" width="60" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs-task-1" value="" style="outlineConnect=0;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;shape=mxgraph.aws3.ec2_compute_container_2;fillColor=#F58534;gradientColor=none;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="111" y="260" width="60" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs-task-2" value="" style="outlineConnect=0;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;shape=mxgraph.aws3.ec2_compute_container_2;fillColor=#F58534;gradientColor=none;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="251" y="260" width="60" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="ec2-instance-1" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="111" y="100" width="60" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ec2-instance-2" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="241" y="100" width="60" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="8" value="ECS" style="fillColor=none;strokeColor=#ed7000;dashed=1;verticalAlign=top;fontStyle=0;fontColor=#5A6C86;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="91" y="80" width="230" height="250" as="geometry"/>
+                </mxCell>
+                <mxCell id="ec2-label-1" value="EC2 Instance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="101" y="160" width="80" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="ec2-label-2" value="EC2 Instance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="241" y="160" width="80" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs-task-label-1" value="ECS Task" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="111" y="300" width="60" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs-task-label-2" value="ECS Task" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                    <mxGeometry x="251" y="300" width="60" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="step1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#1976D2;" parent="1" target="start-state" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="180" y="220" as="sourcePoint"/>
+                        <Array as="points">
+                            <mxPoint x="350" y="220"/>
+                            <mxPoint x="350" y="105"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="step1-label" value="1. Trigger Execution" style="text;html=1;strokeColor=none;fillColor=#E3F2FD;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#1976D2;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="195" y="190" width="100" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="step2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#CD2264;" parent="1" source="provision-ecs" target="ecs-cluster" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="step3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#FF9900;dashed=1;" parent="1" target="ecs-task-1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="650" y="282"/>
+                            <mxPoint x="650" y="320"/>
+                            <mxPoint x="930" y="320"/>
+                        </Array>
+                        <mxPoint x="540" y="282" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="step3-2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#FF9900;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="process-jobs" target="ecs-task-2" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="650" y="282"/>
+                            <mxPoint x="650" y="320"/>
+                            <mxPoint x="1070" y="320"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="step5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9C27B0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="teardown" target="ecs-cluster" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="770" y="410"/>
+                            <mxPoint x="770" y="155"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="tasks-to-s3-processed" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#7AA116;" parent="1" target="processed-bucket" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1170" y="360"/>
+                            <mxPoint x="1170" y="532"/>
+                        </Array>
+                        <mxPoint x="1120" y="360" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="user-label" value="User" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="109" y="258" width="60" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-to-map" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#7AA116;exitX=0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;" parent="1" source="source-bucket" target="8" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="820" y="532"/>
+                            <mxPoint x="820" y="360"/>
+                        </Array>
+                        <mxPoint x="860" y="440" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="step4-label" value="3.2. Process the image and save to s3 bucket" style="text;html=1;strokeColor=none;fillColor=#E8F5E8;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#7aa117;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="1070" y="433" width="100" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="6" value="" style="group" parent="1" connectable="0" vertex="1">
+                    <mxGeometry x="870" y="480" width="200" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-storage" value="S3&amp;nbsp;" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=1;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_cloud_alt;strokeColor=#7AA116;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#7AA116;dashed=0;" parent="6" vertex="1">
+                    <mxGeometry width="200" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="source-bucket" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#7AA116;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;" parent="s3-storage" vertex="1">
+                    <mxGeometry x="30" y="32.00000000000001" width="40.00000000000001" height="40.00000000000001" as="geometry"/>
+                </mxCell>
+                <mxCell id="processed-bucket" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#7AA116;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;" parent="s3-storage" vertex="1">
+                    <mxGeometry x="120" y="32.00000000000001" width="40.00000000000001" height="40.00000000000001" as="geometry"/>
+                </mxCell>
+                <mxCell id="source-label" value="Source Bucket" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" parent="s3-storage" vertex="1">
+                    <mxGeometry x="20" y="80.00000000000001" width="70" height="16.000000000000004" as="geometry"/>
+                </mxCell>
+                <mxCell id="processed-label" value="Processed Bucket" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" parent="s3-storage" vertex="1">
+                    <mxGeometry x="105" y="80.00000000000001" width="80" height="16.000000000000004" as="geometry"/>
+                </mxCell>
+                <mxCell id="step2-label" value="2. Provision ECS&#10;Cluster &amp; Instances" style="text;html=1;strokeColor=none;fillColor=#FCE4EC;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#CD2264;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="130" width="100" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="step4-label-2" value="3.1 Read from S3 for processing" style="text;html=1;strokeColor=none;fillColor=#E8F5E8;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#7AA116;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="830" y="433" width="100" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="step5-label" value="4. Tear Down the ECS Cluster" style="text;html=1;strokeColor=none;fillColor=#F3E5F5;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#9C27B0;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="370" width="100" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="step3-label" value="3. Distributed Map&#10;Executes ECS Tasks" style="text;html=1;strokeColor=none;fillColor=#FFF3E0;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#FF9900;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="660" y="280" width="100" height="35" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
