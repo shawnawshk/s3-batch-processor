@@ -1,0 +1,10 @@
+{
+  "kiroAgent.trustedCommands": [
+    "aws *",
+    "aws stepfunctions *",
+    "./scripts/*",
+    "./scripts/test-end-to-end.sh *",
+    "docker build *",
+    "chmod *"
+  ],
+}

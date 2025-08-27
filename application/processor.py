@@ -42,13 +42,20 @@ class ActivityWorker:
     """Persistent worker that processes tasks from Step Functions Activity"""
     
     def __init__(self):
-        self.stepfunctions_client = boto3.client('stepfunctions', region_name='ap-east-1')
-        self.s3_client = boto3.client('s3', region_name='ap-east-1')
-        
-        # Get configuration from environment
+        # Get configuration from environment variables
         self.activity_arn = os.environ.get('ACTIVITY_ARN')
         self.bucket = os.environ.get('S3_BUCKET')
-        self.worker_id = os.environ.get('WORKER_ID', 'unknown-worker')
+        self.worker_id = os.environ.get('WORKER_ID', f'worker-{os.getpid()}-{int(time.time())}')
+        self.region = os.environ.get('AWS_DEFAULT_REGION', 'ap-east-1')
+        
+        # Get S3 prefixes from environment (with defaults)
+        self.input_prefix = os.environ.get('S3_INPUT_PREFIX', 'input/')
+        self.output_prefix = os.environ.get('S3_OUTPUT_PREFIX', 'output/')
+        self.processed_prefix = os.environ.get('S3_PROCESSED_PREFIX', 'processed/')
+        
+        # Initialize AWS clients
+        self.stepfunctions_client = boto3.client('stepfunctions', region_name=self.region)
+        self.s3_client = boto3.client('s3', region_name=self.region)
         
         # Validate required environment variables
         if not self.activity_arn:
@@ -62,7 +69,11 @@ class ActivityWorker:
         logger.info("Activity worker initialized", extra={
             'worker_id': self.worker_id,
             'activity_arn': self.activity_arn,
-            'bucket': self.bucket
+            'bucket': self.bucket,
+            'region': self.region,
+            's3_input_prefix': self.input_prefix,
+            's3_output_prefix': self.output_prefix,
+            's3_processed_prefix': self.processed_prefix
         })
     
     def get_activity_task(self) -> Optional[Dict[str, Any]]:
@@ -73,9 +84,9 @@ class ActivityWorker:
                 'activity_arn': self.activity_arn
             })
             
+            # Call get_activity_task without workerName (it's optional)
             response = self.stepfunctions_client.get_activity_task(
-                activityArn=self.activity_arn,
-                workerName=self.worker_id
+                activityArn=self.activity_arn
             )
             
             logger.info("Received response from get_activity_task", extra={
@@ -87,7 +98,8 @@ class ActivityWorker:
                 task_input = json.loads(response['input'])
                 logger.info("Got activity task", extra={
                     'worker_id': self.worker_id,
-                    'task_input': task_input
+                    'task_input': task_input,
+                    'task_input_keys': list(task_input.keys()) if isinstance(task_input, dict) else 'not_dict'
                 })
                 return {
                     'task_token': response['taskToken'],
@@ -107,21 +119,24 @@ class ActivityWorker:
             })
             return None
     
-    def process_s3_object(self, object_key: str) -> Dict[str, Any]:
+    def process_s3_object(self, object_key: str, bucket: str = None) -> Dict[str, Any]:
         """Process a single S3 object - one at a time"""
         start_time = time.time()
+        
+        # Use provided bucket or fallback to instance bucket
+        bucket_to_use = bucket or self.bucket
         
         logger.info("Processing S3 object", extra={
             'worker_id': self.worker_id,
             'object_key': object_key,
-            'bucket': self.bucket,
+            'bucket': bucket_to_use,
             'processing_mode': 'single_task'
         })
         
         try:
             # Get object content
             response = self.s3_client.get_object(
-                Bucket=self.bucket,
+                Bucket=bucket_to_use,
                 Key=object_key
             )
             
@@ -130,10 +145,29 @@ class ActivityWorker:
             # Simulate processing time (5 seconds as per requirement)
             time.sleep(5)
             
+            # Create processed object key with configured prefix
+            processed_key = f"{self.processed_prefix}{object_key.replace(self.input_prefix, '')}"
+            
+            # Store processed result in S3
+            processed_content = {
+                'original_content': content,
+                'processed_at': datetime.utcnow().isoformat(),
+                'worker_id': self.worker_id,
+                'processing_time': round(time.time() - start_time, 2)
+            }
+            
+            self.s3_client.put_object(
+                Bucket=bucket_to_use,
+                Key=processed_key,
+                Body=json.dumps(processed_content, indent=2),
+                ContentType='application/json'
+            )
+            
             processing_time = time.time() - start_time
             
             result = {
                 'object_key': object_key,
+                'processed_key': processed_key,
                 'content': content,
                 'processing_time': round(processing_time, 2),
                 'processed_at': datetime.utcnow().isoformat(),
@@ -144,6 +178,7 @@ class ActivityWorker:
             logger.info("S3 object processed successfully", extra={
                 'worker_id': self.worker_id,
                 'object_key': object_key,
+                'processed_key': processed_key,
                 'processing_time': processing_time
             })
             return result
@@ -225,10 +260,18 @@ class ActivityWorker:
                     task_token = task['task_token']
                     task_input = task['input']
                     object_key = task_input.get('object_key')
+                    bucket = task_input.get('bucket', self.bucket)  # Use bucket from task or fallback to env var
                     
                     if object_key:
+                        logger.info("Processing task", extra={
+                            'worker_id': self.worker_id,
+                            'object_key': object_key,
+                            'bucket': bucket,
+                            'task_input': task_input
+                        })
+                        
                         # Process the object
-                        result = self.process_s3_object(object_key)
+                        result = self.process_s3_object(object_key, bucket)
                         
                         # Send result back to Step Functions
                         if result['status'] == 'success':
@@ -247,7 +290,12 @@ class ActivityWorker:
                         # Immediately poll for next task (no delay between tasks)
                         continue
                     else:
-                        self.send_task_failure(task_token, "No object_key in task input")
+                        logger.error("Missing object_key in task input", extra={
+                            'worker_id': self.worker_id,
+                            'task_input': task_input,
+                            'available_keys': list(task_input.keys()) if isinstance(task_input, dict) else 'not_dict'
+                        })
+                        self.send_task_failure(task_token, f"No object_key in task input. Available keys: {list(task_input.keys()) if isinstance(task_input, dict) else 'not_dict'}")
                 
                 else:
                     # No task available, wait a bit before polling again

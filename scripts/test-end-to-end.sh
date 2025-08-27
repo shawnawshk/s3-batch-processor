@@ -10,12 +10,14 @@ REGION="ap-east-1"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 SOURCE_BUCKET="${PROJECT_NAME}-source-${ACCOUNT_ID}"
 WORKER_COUNT=${1:-2}  # Default to 2 workers if not specified
+LAUNCH_TYPE=${2:-FARGATE}  # Default to FARGATE if not specified
 TEST_OBJECTS=$((WORKER_COUNT * 3))  # Create 3x objects as workers for good testing
 
 echo "🧪 Starting End-to-End Test"
 echo "Project: ${PROJECT_NAME}"
 echo "Environment: ${ENVIRONMENT}"
 echo "Worker Count: ${WORKER_COUNT}"
+echo "Launch Type: ${LAUNCH_TYPE}"
 echo "Test Objects: ${TEST_OBJECTS}"
 echo "Region: ${REGION}"
 echo "Source Bucket: ${SOURCE_BUCKET}"
@@ -31,7 +33,36 @@ fi
 
 echo "State Machine ARN: ${STATE_MACHINE_ARN}"
 
-# Step 1: Ensure test data exists in S3
+# Step 1: Stop existing ECS tasks (as per operation rules)
+echo "🛑 Stopping existing ECS tasks..."
+CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
+
+# List existing tasks
+EXISTING_TASKS=$(aws ecs list-tasks --cluster ${CLUSTER_NAME} --region ${REGION} --query 'taskArns' --output text 2>/dev/null || echo "")
+
+if [ ! -z "$EXISTING_TASKS" ] && [ "$EXISTING_TASKS" != "None" ]; then
+    echo "Found existing tasks, stopping them..."
+    for TASK_ARN in $EXISTING_TASKS; do
+        echo "  Stopping task: $(basename $TASK_ARN)"
+        aws ecs stop-task --cluster ${CLUSTER_NAME} --task ${TASK_ARN} --reason "Stopping before new test execution" --region ${REGION} --no-cli-pager >/dev/null 2>&1 || true
+    done
+    
+    # Wait a moment for tasks to stop
+    echo "  Waiting for tasks to stop..."
+    sleep 10
+    
+    # Verify tasks are stopped
+    REMAINING_TASKS=$(aws ecs list-tasks --cluster ${CLUSTER_NAME} --region ${REGION} --query 'taskArns' --output text 2>/dev/null || echo "")
+    if [ ! -z "$REMAINING_TASKS" ] && [ "$REMAINING_TASKS" != "None" ]; then
+        echo "  ⚠️  Some tasks may still be stopping..."
+    else
+        echo "  ✅ All existing tasks stopped"
+    fi
+else
+    echo "  ✅ No existing tasks found"
+fi
+
+# Step 2: Ensure test data exists in S3
 echo "📁 Checking test data in S3..."
 
 # Count existing test objects
@@ -58,7 +89,7 @@ aws s3 ls s3://${SOURCE_BUCKET}/ --region ${REGION}
 echo ""
 echo "⚡ Starting Step Functions execution..."
 EXECUTION_NAME="end-to-end-test-$(date +%s)"
-EXECUTION_INPUT="{\"WorkerCount\": ${WORKER_COUNT}}"
+EXECUTION_INPUT="{\"WorkerCount\": ${WORKER_COUNT}, \"LaunchType\": \"${LAUNCH_TYPE}\", \"S3Bucket\": \"${SOURCE_BUCKET}\"}"
 EXECUTION_ARN=$(aws stepfunctions start-execution \
     --state-machine-arn ${STATE_MACHINE_ARN} \
     --name ${EXECUTION_NAME} \
@@ -203,6 +234,7 @@ echo ""
 echo "🎉 End-to-end test completed successfully!"
 echo ""
 echo "🧹 To clean up resources, run: scripts/cleanup.sh"
-echo "💡 Usage: $0 [worker_count] (default: 2, max: 100)"
-echo "   Example: $0 5  # Test with 5 workers"
-echo "   Example: $0 20 # Test with 20 workers"
+echo "💡 Usage: $0 [worker_count] [launch_type] (default: 2 FARGATE, max: 100)"
+echo "   Example: $0 5 FARGATE    # Test with 5 Fargate workers"
+echo "   Example: $0 10 EC2       # Test with 10 EC2 workers"
+echo "   Example: $0 20 FARGATE   # Test with 20 Fargate workers"

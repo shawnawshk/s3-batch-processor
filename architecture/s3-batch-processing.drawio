@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="S3-Batch-Processing-Simplified" id="s3-batch-processing-simplified">
-        <mxGraphModel dx="614" dy="605" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+        <mxGraphModel dx="815" dy="586" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -73,16 +73,16 @@
                 <mxCell id="8" value="ECS" style="fillColor=none;strokeColor=#ed7000;dashed=1;verticalAlign=top;fontStyle=0;fontColor=#5A6C86;" parent="ecs-infrastructure" vertex="1">
                     <mxGeometry x="91" y="80" width="230" height="250" as="geometry"/>
                 </mxCell>
-                <mxCell id="ec2-label-1" value="EC2 Instance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                <mxCell id="ec2-label-1" value="EC2 Instance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" parent="ecs-infrastructure" vertex="1">
                     <mxGeometry x="101" y="160" width="80" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="ec2-label-2" value="EC2 Instance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                <mxCell id="ec2-label-2" value="EC2 Instance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" parent="ecs-infrastructure" vertex="1">
                     <mxGeometry x="241" y="160" width="80" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="ecs-task-label-1" value="ECS Task" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                <mxCell id="ecs-task-label-1" value="ECS Task" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" parent="ecs-infrastructure" vertex="1">
                     <mxGeometry x="111" y="300" width="60" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="ecs-task-label-2" value="ECS Task" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="ecs-infrastructure" vertex="1">
+                <mxCell id="ecs-task-label-2" value="ECS Task" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" parent="ecs-infrastructure" vertex="1">
                     <mxGeometry x="251" y="300" width="60" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="step1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#1976D2;" parent="1" target="start-state" edge="1">

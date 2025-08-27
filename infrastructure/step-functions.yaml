@@ -159,6 +159,7 @@ Resources:
               Resource: "arn:aws:states:::s3:listObjectsV2"
               Parameters:
                 Bucket: !Ref SourceBucket
+                Prefix: "input/"
             ItemProcessor:
               ProcessorConfig:
                 Mode: "DISTRIBUTED"
@@ -249,15 +250,16 @@ Resources:
                   - iam:PassRole
                 Resource: 
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
-              # S3 permissions
+              # S3 permissions (dynamic - supports any bucket)
               - Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:ListBucket
+                  - s3:ListObjectsV2
                 Resource: 
-                  - !Sub 'arn:aws:s3:::${SourceBucket}'
-                  - !Sub 'arn:aws:s3:::${SourceBucket}/*'
+                  - 'arn:aws:s3:::*'
+                  - 'arn:aws:s3:::*/*'
               # EventBridge permissions for monitoring
               - Effect: Allow
                 Action:
@@ -271,9 +273,14 @@ Resources:
                 Action:
                   - states:StartExecution
                   - states:DescribeExecution
+                  - states:StartMapRun
+                  - states:DescribeMapRun
+                  - states:ListMapRuns
+                  - states:StopMapRun
                 Resource: 
                   - !Sub 'arn:aws:states:ap-east-1:${AWS::AccountId}:stateMachine:${ProjectName}-${Environment}'
                   - !Sub 'arn:aws:states:ap-east-1:${AWS::AccountId}:execution:${ProjectName}-${Environment}:*'
+                  - !Sub 'arn:aws:states:ap-east-1:${AWS::AccountId}:mapRun:${ProjectName}-${Environment}/*'
               # Activity permissions
               - Effect: Allow
                 Action:

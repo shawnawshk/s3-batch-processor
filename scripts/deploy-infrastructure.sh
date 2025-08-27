@@ -7,11 +7,17 @@ set -e
 PROJECT_NAME="s3-batch-processor"
 ENVIRONMENT="poc"
 REGION="ap-east-1"
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-SOURCE_BUCKET="${PROJECT_NAME}-source-${ACCOUNT_ID}"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text --no-cli-pager)
 WORKER_COUNT=${1:-2}  # Default to 2 workers if not specified
 LAUNCH_TYPE=${2:-FARGATE}  # Default to FARGATE if not specified
 INSTANCE_TYPE=${3:-t3.medium}  # Default to t3.medium if not specified
+
+# Get S3 bucket from Parameter Store or use default
+SOURCE_BUCKET=$(aws ssm get-parameter \
+    --name "/$PROJECT_NAME/$ENVIRONMENT/s3/bucket_name" \
+    --region $REGION --no-cli-pager \
+    --query 'Parameter.Value' --output text 2>/dev/null || \
+    echo "${PROJECT_NAME}-source-${ACCOUNT_ID}")
 
 echo "🚀 Starting S3 Batch Processing PoC Deployment"
 echo "Project: ${PROJECT_NAME}"
@@ -44,8 +50,8 @@ cd ..
 
 # Step 3: Create S3 bucket if it doesn't exist
 echo "🪣 Setting up S3 source bucket..."
-aws s3api head-bucket --bucket ${SOURCE_BUCKET} --region ${REGION} 2>/dev/null || \
-aws s3 mb s3://${SOURCE_BUCKET} --region ${REGION}
+aws s3api head-bucket --bucket ${SOURCE_BUCKET} --region ${REGION} --no-cli-pager 2>/dev/null || \
+aws s3 mb s3://${SOURCE_BUCKET} --region ${REGION} --no-cli-pager
 
 # Step 4: Get network configuration
 echo "🌐 Getting network configuration..."
@@ -80,16 +86,31 @@ aws cloudformation deploy \
 
 # Get ECS outputs
 CLUSTER_ARN=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`ClusterArn`].OutputValue' --output text --region ${REGION})
-TASK_DEFINITION_ARN=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`TaskDefinitionArn`].OutputValue' --output text --region ${REGION})
+FARGATE_TASK_DEFINITION_ARN=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`FargateTaskDefinitionArn`].OutputValue' --output text --region ${REGION})
+EC2_TASK_DEFINITION_ARN=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`EC2TaskDefinitionArn`].OutputValue' --output text --region ${REGION})
+EC2_CAPACITY_PROVIDER=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`EC2CapacityProviderName`].OutputValue' --output text --region ${REGION})
 
-# Get network configuration from ECS stack if using EC2
+# Associate capacity providers with the cluster
+echo "🔗 Associating capacity providers with ECS cluster..."
+aws ecs put-cluster-capacity-providers \
+  --cluster ${CLUSTER_ARN} \
+  --capacity-providers FARGATE FARGATE_SPOT ${EC2_CAPACITY_PROVIDER} \
+  --default-capacity-provider-strategy capacityProvider=FARGATE,weight=1 \
+  --region ${REGION}
+
+# Get network configuration - use default VPC for Fargate, ECS stack outputs for EC2
 if [ "${LAUNCH_TYPE}" = "EC2" ]; then
-    SUBNET_ID=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`SubnetId`].OutputValue' --output text --region ${REGION})
-    SECURITY_GROUP_ID=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroupId`].OutputValue' --output text --region ${REGION})
+    SUBNET_ID=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`SubnetId`].OutputValue' --output text --region ${REGION} 2>/dev/null || echo "")
+    SECURITY_GROUP_ID=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-ecs-${ENVIRONMENT} --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroupId`].OutputValue' --output text --region ${REGION} 2>/dev/null || echo "")
+    if [ -z "$SUBNET_ID" ] || [ -z "$SECURITY_GROUP_ID" ]; then
+        echo "❌ Error: Could not get EC2 network configuration from ECS stack"
+        exit 1
+    fi
 fi
 
 echo "Cluster ARN: ${CLUSTER_ARN}"
-echo "Task Definition ARN: ${TASK_DEFINITION_ARN}"
+echo "Fargate Task Definition ARN: ${FARGATE_TASK_DEFINITION_ARN}"
+echo "EC2 Task Definition ARN: ${EC2_TASK_DEFINITION_ARN}"
 echo "Subnet ID: ${SUBNET_ID}"
 echo "Security Group ID: ${SECURITY_GROUP_ID}"
 
@@ -103,11 +124,11 @@ aws cloudformation deploy \
     Environment=${ENVIRONMENT} \
     SourceBucket=${SOURCE_BUCKET} \
     ClusterArn=${CLUSTER_ARN} \
-    TaskDefinitionArn=${TASK_DEFINITION_ARN} \
+    FargateTaskDefinitionArn=${FARGATE_TASK_DEFINITION_ARN} \
+    EC2TaskDefinitionArn=${EC2_TASK_DEFINITION_ARN} \
     SubnetId=${SUBNET_ID} \
     SecurityGroupId=${SECURITY_GROUP_ID} \
     WorkerCount=${WORKER_COUNT} \
-    LaunchType=${LAUNCH_TYPE} \
   --capabilities CAPABILITY_IAM \
   --region ${REGION}
 
@@ -125,7 +146,8 @@ echo "📋 Deployment Summary:"
 echo "  - ECR Repository: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${PROJECT_NAME}"
 echo "  - S3 Source Bucket: ${SOURCE_BUCKET}"
 echo "  - ECS Cluster: ${CLUSTER_ARN}"
-echo "  - Task Definition: ${TASK_DEFINITION_ARN}"
+echo "  - Fargate Task Definition: ${FARGATE_TASK_DEFINITION_ARN}"
+echo "  - EC2 Task Definition: ${EC2_TASK_DEFINITION_ARN}"
 echo "  - State Machine: ${STATE_MACHINE_ARN}"
 echo "  - Activity: ${ACTIVITY_ARN}"
 echo ""
