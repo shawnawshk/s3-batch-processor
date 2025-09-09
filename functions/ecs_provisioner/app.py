@@ -43,7 +43,12 @@ def lambda_handler(event, context):
                     response = ecs.run_task(
                         cluster=cluster,
                         taskDefinition=task_definition,
-                        launchType='EC2'
+                        launchType='EC2',
+                        placementConstraints=[
+                            {
+                                'type': 'distinctInstance'
+                            }
+                        ]
                     )
                     if response['tasks']:
                         launched_tasks.append(response['tasks'][0]['taskArn'])
