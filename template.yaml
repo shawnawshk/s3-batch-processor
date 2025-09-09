@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: S3 Batch Processor with EC2 Auto Scaling
+
+Parameters:
+  MaxWorkers:
+    Type: Number
+    Default: 3
+    Description: Maximum number of EC2 workers
+  InstanceType:
+    Type: String
+    Default: c5.large
+    AllowedValues: [t3.medium, c5.large, m5.large, m5.xlarge, g5.12xlarge]
+    Description: EC2 instance type for workers
+  ECSOptimizedAMI:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+
+Resources:
+  # Custom resource to get default VPC
+  GetDefaultVPCFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      InlineCode: |
+        import boto3
+        import cfnresponse
+        def handler(event, context):
+            try:
+                ec2 = boto3.client('ec2')
+                vpcs = ec2.describe_vpcs(Filters=[{'Name': 'isDefault', 'Values': ['true']}])
+                vpc_id = vpcs['Vpcs'][0]['VpcId'] if vpcs['Vpcs'] else None
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'VpcId': vpc_id})
+            except Exception as e:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {})
+      Handler: index.handler
+      Runtime: python3.11
+      Timeout: 60
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: ec2:DescribeVpcs
+              Resource: '*'
+
+  GetDefaultVPC:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt GetDefaultVPCFunction.Arn
+
+  # S3 Bucket
+  ProcessingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 's3-batch-processor-${AWS::AccountId}'
+
+  # Step Functions Activity
+  ProcessingActivity:
+    Type: AWS::StepFunctions::Activity
+    Properties:
+      Name: !Sub 's3-batch-processing-activity-${AWS::StackName}'
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 's3-batch-processor-${AWS::StackName}'
+
+  # Security Group (using default VPC)
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS instances
+      VpcId: !GetAtt GetDefaultVPC.VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # Auto Scaling Group
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: 0
+      MaxSize: !Ref MaxWorkers
+      DesiredCapacity: 0
+      AvailabilityZones:
+        - !Select [0, !GetAZs '']
+        - !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub 's3-batch-processor-${AWS::StackName}'
+          PropagateAtLaunch: true
+
+  # Launch Template
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref ECSOptimizedAMI
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Arn: !GetAtt ECSInstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+            echo ECS_ENABLE_TASK_IAM_ROLE=true >> /etc/ecs/ecs.config
+
+  # ECS Task Definition
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 's3-batch-processor-${AWS::StackName}'
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      NetworkMode: bridge
+      RequiresCompatibilities:
+        - EC2
+      Cpu: '1024'
+      Memory: '1024'
+      ContainerDefinitions:
+        - Name: processor
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3-batch-processor:latest'
+          Essential: true
+          Memory: 1024
+          Environment:
+            - Name: ACTIVITY_ARN
+              Value: !Ref ProcessingActivity
+            - Name: S3_BUCKET
+              Value: !Ref ProcessingBucket
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  # CloudWatch Log Group
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/s3-batch-processor-${AWS::StackName}'
+      RetentionInDays: 7
+
+  # IAM Roles
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${ProcessingBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - states:GetActivityTask
+                  - states:SendTaskSuccess
+                  - states:SendTaskFailure
+                Resource: !Ref ProcessingActivity
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ECSInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ECSInstanceRole
+
+  # Lambda function for EC2 provisioning
+  ECSProvisionerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ecs-provisioner-${AWS::StackName}'
+      CodeUri: functions/ecs_provisioner/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Timeout: 300
+      Environment:
+        Variables:
+          MAX_WORKERS: !Ref MaxWorkers
+          BUCKET_NAME: !Ref ProcessingBucket
+          ACTIVITY_ARN: !Ref ProcessingActivity
+          ECS_CLUSTER: !Ref ECSCluster
+          TASK_DEFINITION: !Ref TaskDefinition
+          ASG_NAME: !Ref AutoScalingGroup
+          COMPUTE_TYPE: EC2
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ecs:*
+                - autoscaling:*
+                - iam:PassRole
+              Resource: '*'
+
+  # Step Functions State Machine
+  ProcessingStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub 's3-batch-processor-${AWS::StackName}'
+      DefinitionUri: statemachine/workflow-complete.asl.json
+      DefinitionSubstitutions:
+        ActivityArn: !Ref ProcessingActivity
+        ECSProvisionerArn: !GetAtt ECSProvisionerFunction.Arn
+        MaxWorkers: !Ref MaxWorkers
+      Role: !GetAtt StateMachineRole.Arn
+
+  # State Machine Role
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt ProcessingBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub '${ProcessingBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ECSProvisionerFunction.Arn
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:DescribeExecution
+                  - states:StopExecution
+                Resource: 
+                  - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*'
+                  - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:*'
+
+Outputs:
+  StateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value: !Ref ProcessingStateMachine
+  
+  BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref ProcessingBucket
+  
+  AutoScalingGroupName:
+    Description: Auto Scaling Group Name
+    Value: !Ref AutoScalingGroup

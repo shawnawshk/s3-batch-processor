@@ -1,0 +1,75 @@
+{
+  "Comment": "Complete S3 Batch Processing workflow with distributed map",
+  "StartAt": "ProvisionECS",
+  "States": {
+    "ProvisionECS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ECSProvisionerArn}",
+        "Payload": {
+          "action": "provision",
+          "worker_count": "${MaxWorkers}"
+        }
+      },
+      "ResultPath": "$.provisionResult",
+      "Next": "WaitForWorkers"
+    },
+    "WaitForWorkers": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "ProcessObjects"
+    },
+    "ProcessObjects": {
+      "Type": "Map",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "ProcessSingleObject",
+        "States": {
+          "ProcessSingleObject": {
+            "Type": "Task",
+            "Resource": "${ActivityArn}",
+            "Parameters": {
+              "object_key.$": "$.Key"
+            },
+            "TimeoutSeconds": 300,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ItemsPath": "$.objects",
+      "MaxConcurrency": 10,
+      "ToleratedFailurePercentage": 10,
+      "Next": "DeprovisionECS",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "DeprovisionECS",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "DeprovisionECS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ECSProvisionerArn}",
+        "Payload": {
+          "action": "deprovision"
+        }
+      },
+      "End": true
+    }
+  }
+}

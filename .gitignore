@@ -1,5 +1,26 @@
-.kiro/settings
+# SAM build artifacts
+.aws-sam/
+samconfig.toml
 
-generated-diagrams
+# IDE and tool directories
+.vscode/
+.idea/
+.kiro/
+.amazonq/
 
+# OS files
 .DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# Logs
+*.log
