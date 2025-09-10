@@ -13,11 +13,6 @@
         }
       },
       "ResultPath": "$.provisionResult",
-      "Next": "WaitForWorkers"
-    },
-    "WaitForWorkers": {
-      "Type": "Wait",
-      "Seconds": 30,
       "Next": "ProcessObjects"
     },
     "ProcessObjects": {

@@ -26,7 +26,8 @@ def lambda_handler(event, context):
             
             # Wait for instances to register with ECS
             print("Waiting for EC2 instances to register with ECS...")
-            for i in range(12):  # Wait up to 2 minutes
+            registered_instances = 0
+            for i in range(24):  # Wait up to 4 minutes for instances
                 cluster_info = ecs.describe_clusters(clusters=[cluster], include=['STATISTICS'])
                 registered_instances = cluster_info['clusters'][0]['registeredContainerInstancesCount']
                 print(f"Registered instances: {registered_instances}/{worker_count}")
@@ -34,6 +35,9 @@ def lambda_handler(event, context):
                 if registered_instances >= worker_count:
                     break
                 time.sleep(10)
+            
+            if registered_instances < worker_count:
+                raise Exception(f"Failed to register {worker_count} instances with ECS. Only {registered_instances} registered after 4 minutes.")
             
             # Launch ECS tasks - one task per instance
             launched_tasks = []
@@ -71,16 +75,51 @@ def lambda_handler(event, context):
                             print(f"Launched EC2 task {i+1}: {response['tasks'][0]['taskArn']}")
                     except Exception as e:
                         print(f"Error launching task {i}: {e}")
+            
+            if len(launched_tasks) == 0:
+                raise Exception(f"Failed to launch any ECS tasks. Expected {worker_count} tasks.")
+            
+            # CRITICAL: Wait for ALL tasks to be RUNNING
+            print(f"Waiting for ALL {len(launched_tasks)} tasks to be RUNNING...")
+            running_tasks = []
+            for i in range(30):  # Wait up to 5 minutes for tasks to be running
+                running_tasks = []
+                try:
+                    for task_arn in launched_tasks:
+                        task_response = ecs.describe_tasks(cluster=cluster, tasks=[task_arn])
+                        if task_response['tasks']:
+                            task_status = task_response['tasks'][0]['lastStatus']
+                            if task_status == 'RUNNING':
+                                running_tasks.append(task_arn)
+                            elif task_status in ['STOPPED', 'DEACTIVATING']:
+                                print(f"Task failed: {task_arn} - Status: {task_status}")
+                    
+                    print(f"Running tasks: {len(running_tasks)}/{worker_count} (iteration {i+1}/30)")
+                    
+                    # SUCCESS CONDITION: Exact number of running tasks
+                    if len(running_tasks) == worker_count:
+                        print(f"SUCCESS: All {worker_count} tasks are RUNNING!")
+                        break
+                        
+                except Exception as e:
+                    print(f"Error checking task status: {e}")
+                
+                time.sleep(10)
+            
+            # FAIL if we don't have the exact number of running tasks
+            if len(running_tasks) != worker_count:
+                raise Exception(f"PROVISIONING FAILED: Expected {worker_count} running tasks, but only {len(running_tasks)} are running after 5 minutes. Tasks: {launched_tasks}")
         
         return {
             'statusCode': 200,
             'body': json.dumps({
-                'message': f'Provisioned {len(launched_tasks)} EC2 workers',
+                'message': f'Successfully provisioned {len(running_tasks)} running EC2 workers',
                 'cluster': cluster,
-                'tasks': launched_tasks,
+                'running_tasks': running_tasks,
                 'action': action,
                 'compute_type': compute_type,
-                'worker_count': worker_count
+                'worker_count': worker_count,
+                'success': True
             })
         }
     
