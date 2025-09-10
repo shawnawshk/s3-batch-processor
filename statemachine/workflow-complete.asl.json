@@ -9,7 +9,7 @@
         "FunctionName": "${ECSProvisionerArn}",
         "Payload": {
           "action": "provision",
-          "worker_count": "${MaxWorkers}"
+          "worker_count.$": "$.worker_count"
         }
       },
       "ResultPath": "$.provisionResult",

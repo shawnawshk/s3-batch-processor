@@ -5,7 +5,9 @@ set -e
 REGION=${AWS_REGION:-ap-east-1}
 STACK_NAME="s3-batch-processor"
 
-echo "🧪 End-to-End Test: S3 Batch Processing"
+echo "🧪 End-to-End Test: S3 Batch Processing with Dynamic Workers"
+echo "Usage: $0 [worker_count]"
+echo "Example: $0 5  # Use 5 workers"
 
 # Get stack outputs
 BUCKET_NAME=$(aws cloudformation describe-stacks \
@@ -56,8 +58,10 @@ OBJECTS=$(aws s3api list-objects-v2 \
   --region $REGION \
   --query 'Contents[].{Key: Key}')
 
-EXECUTION_INPUT=$(echo "$OBJECTS" | jq '{objects: .}')
-echo "Processing $(echo "$OBJECTS" | jq length) files"
+# Dynamic worker count - can be customized
+WORKER_COUNT=${1:-3}  # Default to 3 workers, or use first argument
+EXECUTION_INPUT=$(echo "$OBJECTS" | jq --argjson workers "$WORKER_COUNT" '{objects: ., worker_count: $workers}')
+echo "Processing $(echo "$OBJECTS" | jq length) files with $WORKER_COUNT workers"
 
 # Step 4: Execute workflow
 echo ""

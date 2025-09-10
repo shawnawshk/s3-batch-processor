@@ -11,20 +11,21 @@ Step Functions Distributed Map (discovers objects)
     ↓ (distributes tasks)
 Step Functions Activity (task queue)
     ↓ (workers poll for tasks)
-ECS Worker Pool (Auto Scaling EC2 instances)
+ECS Worker Pool (Dynamic Auto Scaling EC2 instances)
     ↓ (processes objects)
 S3 Bucket (processed/ folder) + CloudWatch Logs
 ```
 
 ## ✨ Key Features
 
-- **🚀 Scalable**: Configurable EC2 workers with Auto Scaling (0 → N → 0)
+- **🚀 Dynamic Scaling**: Worker count specified at execution time (1-100 workers)
 - **⚡ Fast**: Parallel processing with distributed map pattern
 - **💰 Cost-Effective**: Dynamic scaling, pay only when processing
 - **🔄 Reliable**: Built-in retry logic and error handling
 - **📊 Observable**: Comprehensive structured JSON logging
 - **🐳 Containerized**: Uses Docker image from application code
 - **🌐 Portable**: Dynamic VPC discovery, works across accounts/regions
+- **🎯 Flexible**: Easy adaptation to any workload size
 
 ## 🚀 Quick Start
 
@@ -41,22 +42,36 @@ S3 Bucket (processed/ folder) + CloudWatch Logs
 This solution uses **AWS SAM (Serverless Application Model)** for infrastructure deployment and management.
 
 ```bash
-# Deploy with default settings (3 c5.large instances)
+# Deploy with default settings (ASG max size: 100)
 ./deploy.sh
 
-# Or customize deployment
-./deploy.sh 5 m5.large    # 5 m5.large instances
-./deploy.sh 10 c5.xlarge  # 10 c5.xlarge instances
+# Or customize deployment with instance type
+./deploy.sh 5 m5.large    # Still works, but worker count is now dynamic
 ```
 
 The deployment script uses `sam build` and `sam deploy` commands to provision all AWS resources defined in the SAM template.
 
-### 🧪 Test
+### 🧪 Test & Execute
 
 ```bash
-# Run end-to-end test
+# Run end-to-end test with default 3 workers
 ./test.sh
+
+# Run test with custom worker count
+./test.sh 10
+
+# Execute with specific worker count
+./execute.sh 5          # 5 workers
+./execute.sh 20         # 20 workers
+./execute.sh 50         # 50 workers
+
+# Execute with custom S3 prefix
+./execute.sh 10 data/   # 10 workers, process 'data/' prefix
 ```
+
+**Script Differences:**
+- **`test.sh`**: Complete end-to-end test - generates files, monitors execution, verifies results
+- **`execute.sh`**: Quick execution launcher - uses existing S3 files, starts workflow and exits
 
 ### 🧹 Cleanup
 
@@ -69,9 +84,10 @@ The deployment script uses `sam build` and `sam deploy` commands to provision al
 
 ```text
 ├── README.md                    # This guide
-├── template.yaml               # AWS SAM template with dynamic VPC discovery
+├── template.yaml               # AWS SAM template with dynamic scaling (max 100)
 ├── deploy.sh                   # SAM deployment script
-├── test.sh                     # End-to-end test
+├── test.sh                     # End-to-end test with dynamic worker count
+├── execute.sh                  # Simple execution script for any worker count
 ├── cleanup.sh                  # Resource cleanup
 ├── build-and-push.sh          # Docker build/push script
 ├── application/                # Application code
@@ -79,12 +95,24 @@ The deployment script uses `sam build` and `sam deploy` commands to provision al
 │   ├── requirements.txt       # Python dependencies
 │   └── Dockerfile            # Container definition
 ├── functions/                  # Lambda functions
-│   └── ecs_provisioner/      # ECS provisioning logic
+│   └── ecs_provisioner/      # Dynamic ECS provisioning logic
 └── statemachine/              # Step Functions workflow
-    └── workflow-complete.asl.json
+    └── workflow-complete.asl.json  # Accepts dynamic worker_count input
 ```
 
-## ⚙️ Configuration
+## ⚙️ Dynamic Worker Configuration
+
+### 🎯 Execution Input Format
+
+```json
+{
+  "objects": [
+    {"Key": "input/file1.txt"},
+    {"Key": "input/file2.txt"}
+  ],
+  "worker_count": 10
+}
+```
 
 ### 🖥️ Instance Types
 
@@ -97,9 +125,10 @@ The deployment script uses `sam build` and `sam deploy` commands to provision al
 
 | Workers | Instance Type | Objects | Processing Time | Throughput |
 |---------|---------------|---------|----------------|------------|
-| 3       | c5.large     | 5       | ~1.5 minutes   | 200 obj/hr |
-| 5       | c5.large     | 10      | ~1.5 minutes   | 400 obj/hr |
-| 10      | m5.large     | 20      | ~2 minutes     | 600 obj/hr |
+| 3       | c5.large     | 50      | ~4 minutes     | 750 obj/hr |
+| 5       | c5.large     | 50      | ~2.5 minutes   | 1200 obj/hr |
+| 10      | c5.large     | 50      | ~1.5 minutes   | 2000 obj/hr |
+| 20      | m5.large     | 100     | ~1.5 minutes   | 4000 obj/hr |
 
 ## 🔍 Monitoring
 
@@ -165,19 +194,21 @@ def process_s3_object(self, object_key: str, bucket: str = None) -> Dict[str, An
 ### 💰 Cost Optimization
 
 - **Zero cost when idle**: ASG scales to 0 when no processing
-- **Right-sized instances**: Choose appropriate instance types
+- **Dynamic worker count**: Scale exactly to your workload needs
 - **Efficient processing**: 5-second processing time per object
 - **Automatic cleanup**: Infrastructure scales down after completion
 
 ### 📈 Scaling Guidelines
 
-- **Small workloads (< 50 objects)**: 2-3 workers
-- **Medium workloads (50-500 objects)**: 5-10 workers  
-- **Large workloads (500+ objects)**: 10+ workers
+- **Small workloads (< 50 objects)**: 2-5 workers
+- **Medium workloads (50-500 objects)**: 5-20 workers
+- **Large workloads (500+ objects)**: 20-100 workers
+- **Maximum capacity**: 100 workers (configurable in template.yaml)
 
 ### 🔧 Tested Configuration
 
-- **✅ 3 c5.large EC2 instances**: Proven to work reliably
+- **✅ Dynamic worker count**: 1-100 workers tested and working
+- **✅ 1:1:1 ratio**: 1 worker = 1 EC2 instance = 1 ECS task
 - **✅ Dynamic VPC discovery**: Portable across accounts
 - **✅ Proper logging**: Structured JSON logs with processing details
 - **✅ Complete lifecycle**: Provision → Process → Deprovision
@@ -192,8 +223,8 @@ sam build
 # Deploy with guided prompts
 sam deploy --guided
 
-# Deploy with parameters
-sam deploy --parameter-overrides ParameterKey=WorkerCount,ParameterValue=5
+# Deploy with custom max workers (default: 100)
+sam deploy --parameter-overrides MaxWorkers=200
 
 # View stack outputs
 sam list stack-outputs
@@ -202,6 +233,25 @@ sam list stack-outputs
 sam delete
 ```
 
+## 🚀 Usage Examples
+
+```bash
+# Process 10 files with 3 workers
+./execute.sh 3
+
+# Process 100 files with 25 workers for faster throughput
+./execute.sh 25
+
+# Process files from 'data/' prefix with 10 workers
+./execute.sh 10 data/
+
+# Run comprehensive test with 5 workers
+./test.sh 5
+
+# Multiple concurrent executions for load testing
+./execute.sh 5 && ./execute.sh 8 && ./execute.sh 12
+```
+
 ---
 
-**🎉 Ready to process thousands of S3 objects efficiently with AWS SAM and dynamic EC2 scaling!**
+**🎉 Ready to process thousands of S3 objects efficiently with dynamic AWS SAM scaling!**

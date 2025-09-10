@@ -4,7 +4,6 @@ import boto3
 import time
 
 def lambda_handler(event, context):
-    max_workers = int(os.environ.get('MAX_WORKERS', '3'))
     cluster = os.environ.get('ECS_CLUSTER', '')
     task_definition = os.environ.get('TASK_DEFINITION', '')
     asg_name = os.environ.get('ASG_NAME', '')
@@ -15,7 +14,7 @@ def lambda_handler(event, context):
     action = event.get('action', 'test')
     
     if action == 'provision':
-        worker_count = int(event.get('worker_count', max_workers))
+        worker_count = int(event.get('worker_count', 3))
         
         if compute_type == 'EC2':
             # Scale up Auto Scaling Group first
@@ -36,25 +35,42 @@ def lambda_handler(event, context):
                     break
                 time.sleep(10)
             
-            # Launch ECS tasks
+            # Launch ECS tasks - one task per instance
             launched_tasks = []
-            for i in range(worker_count):
-                try:
-                    response = ecs.run_task(
-                        cluster=cluster,
-                        taskDefinition=task_definition,
-                        launchType='EC2',
-                        placementConstraints=[
-                            {
-                                'type': 'distinctInstance'
-                            }
-                        ]
-                    )
-                    if response['tasks']:
-                        launched_tasks.append(response['tasks'][0]['taskArn'])
-                        print(f"Launched EC2 task {i+1}: {response['tasks'][0]['taskArn']}")
-                except Exception as e:
-                    print(f"Error launching task {i}: {e}")
+            try:
+                response = ecs.run_task(
+                    cluster=cluster,
+                    taskDefinition=task_definition,
+                    launchType='EC2',
+                    count=worker_count,
+                    placementConstraints=[
+                        {
+                            'type': 'distinctInstance'
+                        }
+                    ]
+                )
+                launched_tasks = [task['taskArn'] for task in response['tasks']]
+                print(f"Launched {len(launched_tasks)} EC2 tasks: {launched_tasks}")
+            except Exception as e:
+                print(f"Error launching tasks: {e}")
+                # Fallback: launch tasks one by one
+                for i in range(worker_count):
+                    try:
+                        response = ecs.run_task(
+                            cluster=cluster,
+                            taskDefinition=task_definition,
+                            launchType='EC2',
+                            placementConstraints=[
+                                {
+                                    'type': 'distinctInstance'
+                                }
+                            ]
+                        )
+                        if response['tasks']:
+                            launched_tasks.append(response['tasks'][0]['taskArn'])
+                            print(f"Launched EC2 task {i+1}: {response['tasks'][0]['taskArn']}")
+                    except Exception as e:
+                        print(f"Error launching task {i}: {e}")
         
         return {
             'statusCode': 200,
@@ -63,7 +79,8 @@ def lambda_handler(event, context):
                 'cluster': cluster,
                 'tasks': launched_tasks,
                 'action': action,
-                'compute_type': compute_type
+                'compute_type': compute_type,
+                'worker_count': worker_count
             })
         }
     
@@ -129,7 +146,6 @@ def lambda_handler(event, context):
             'statusCode': 200,
             'body': json.dumps({
                 'message': 'ECS Provisioner function working (EC2)',
-                'max_workers': max_workers,
                 'cluster': cluster,
                 'cluster_status': cluster_status,
                 'registered_instances': registered_instances,

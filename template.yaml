@@ -5,7 +5,7 @@ Description: S3 Batch Processor with EC2 Auto Scaling
 Parameters:
   MaxWorkers:
     Type: Number
-    Default: 3
+    Default: 100
     Description: Maximum number of EC2 workers
   InstanceType:
     Type: String
@@ -219,7 +219,6 @@ Resources:
       Timeout: 300
       Environment:
         Variables:
-          MAX_WORKERS: !Ref MaxWorkers
           BUCKET_NAME: !Ref ProcessingBucket
           ACTIVITY_ARN: !Ref ProcessingActivity
           ECS_CLUSTER: !Ref ECSCluster
@@ -245,7 +244,6 @@ Resources:
       DefinitionSubstitutions:
         ActivityArn: !Ref ProcessingActivity
         ECSProvisionerArn: !GetAtt ECSProvisionerFunction.Arn
-        MaxWorkers: !Ref MaxWorkers
       Role: !GetAtt StateMachineRole.Arn
 
   # State Machine Role
