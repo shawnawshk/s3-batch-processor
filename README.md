@@ -4,17 +4,92 @@ A production-ready AWS SAM solution for processing large numbers of S3 objects i
 
 ## 🏗️ Architecture
 
-```text
-S3 Bucket (input/ folder)
-    ↓
-Step Functions Distributed Map (discovers objects)
-    ↓ (distributes tasks)
-Step Functions Activity (task queue)
-    ↓ (workers poll for tasks)
-ECS Worker Pool (Dynamic Auto Scaling EC2 instances)
-    ↓ (processes objects)
-S3 Bucket (processed/ folder) + CloudWatch Logs
+![S3 Batch Processing Architecture](architecture/architecture.png)
+
+The architecture shows the complete workflow from S3 input through distributed processing to output:
+
+- **S3 Input**: Objects stored in `input/` folder trigger processing
+- **Step Functions**: Orchestrates the entire workflow with distributed map
+- **ECS Workers**: Dynamic scaling EC2 instances process objects in parallel
+- **Activity Pattern**: Workers poll Step Functions Activity for tasks
+- **S3 Output**: Processed objects stored in `processed/` folder
+
+## 🔄 Step Functions Workflow
+
+The solution uses a sophisticated Step Functions state machine that orchestrates the entire processing pipeline:
+
+### Workflow States
+
+![Step Functions Workflow](architecture/workflow.png)
+
+### State Details
+
+#### 1. **ProvisionECS State**
+
+- **Type**: Lambda Task
+- **Purpose**: Dynamically provisions ECS workers
+- **Input**: `worker_count` parameter
+- **Function**: Calls ECS Provisioner Lambda to:
+  - Scale Auto Scaling Group to desired worker count
+  - Wait for EC2 instances to be ready
+  - Start ECS tasks on the instances
+- **Output**: Provisioning result with worker details
+
+#### 2. **ProcessObjects State**
+
+- **Type**: Distributed Map
+- **Purpose**: Processes all S3 objects in parallel
+- **Configuration**:
+  - `Mode: DISTRIBUTED` - Uses Step Functions Distributed Map for high concurrency
+  - `ExecutionType: STANDARD` - Full Step Functions features
+  - `MaxConcurrency: 10` - Limits parallel executions
+  - `ToleratedFailurePercentage: 10` - Allows 10% failures
+- **Item Processor**: Each S3 object becomes a separate execution
+- **Task Resource**: Step Functions Activity (polling-based)
+- **Retry Logic**: 3 attempts with exponential backoff
+- **Timeout**: 300 seconds per object
+
+#### 3. **DeprovisionECS State**
+
+- **Type**: Lambda Task  
+- **Purpose**: Clean up resources
+- **Trigger**: Always runs (success or failure via Catch block)
+- **Function**: Calls ECS Provisioner Lambda to:
+  - Stop ECS tasks
+  - Scale Auto Scaling Group to 0
+  - Clean up resources
+
+### Workflow Input Format
+
+```json
+{
+  "objects": [
+    {"Key": "input/file1.txt"},
+    {"Key": "input/file2.txt"},
+    {"Key": "input/file3.txt"}
+  ],
+  "worker_count": 5
+}
 ```
+
+### Error Handling & Resilience
+
+- **Retry Logic**: Failed object processing retries 3x with exponential backoff
+- **Fault Tolerance**: Up to 10% of objects can fail without stopping the workflow
+- **Guaranteed Cleanup**: Deprovisioning always runs via Catch block
+- **Timeout Protection**: 300-second timeout prevents stuck tasks
+- **Activity Pattern**: Workers poll for tasks, enabling dynamic scaling
+
+### Execution Flow
+
+1. **Start**: Workflow receives list of S3 objects and worker count
+2. **Provision**: Lambda provisions exact number of ECS workers needed
+3. **Distribute**: Distributed Map creates one execution per S3 object
+4. **Process**: Workers poll Activity for tasks and process objects in parallel
+5. **Monitor**: Step Functions tracks progress and handles failures
+6. **Cleanup**: Resources are deprovisioned regardless of success/failure
+
+This architecture enables processing thousands of S3 objects with precise resource control and cost optimization.
 
 ## ✨ Key Features
 
@@ -70,6 +145,7 @@ The deployment script uses `sam build` and `sam deploy` commands to provision al
 ```
 
 **Script Differences:**
+
 - **`test.sh`**: Complete end-to-end test - generates files, monitors execution, verifies results
 - **`execute.sh`**: Quick execution launcher - uses existing S3 files, starts workflow and exits
 
